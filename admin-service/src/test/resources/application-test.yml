@@ -1,0 +1,27 @@
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  datasource:
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+eureka:
+  client:
+    enabled: false
+
+spring.cloud.discovery.enabled: false
+
+app:
+  jwt:
+    secret: test-secret-key-for-testing-only-minimum-32-characters-long
+    expiration: 3600000

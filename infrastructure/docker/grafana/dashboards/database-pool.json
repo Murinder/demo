@@ -1,0 +1,260 @@
+{
+  "id": null,
+  "uid": "etsopy-database-pool",
+  "title": "ETSOPY - Database Connection Pool",
+  "tags": ["etsopy", "database", "hikari"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(hikaricp_connections, job)",
+        "multi": false,
+        "includeAll": false,
+        "current": {"text": "core-service", "value": "core-service"},
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Connection Pool Overview",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active{job=\"$job\"}",
+          "legendFormat": "Active",
+          "refId": "A"
+        },
+        {
+          "expr": "hikaricp_connections_idle{job=\"$job\"}",
+          "legendFormat": "Idle",
+          "refId": "B"
+        },
+        {
+          "expr": "hikaricp_connections{job=\"$job\"}",
+          "legendFormat": "Total",
+          "refId": "C"
+        },
+        {
+          "expr": "hikaricp_connections_max{job=\"$job\"}",
+          "legendFormat": "Max",
+          "refId": "D"
+        },
+        {
+          "expr": "hikaricp_connections_pending{job=\"$job\"}",
+          "legendFormat": "Pending",
+          "refId": "E"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          }
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Pending"}, "properties": [{"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}]}
+        ]
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Active Connections",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active{job=\"$job\"}",
+          "legendFormat": "Active",
+          "refId": "A"
+        },
+        {
+          "expr": "hikaricp_connections_max{job=\"$job\"}",
+          "legendFormat": "Max",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Max"}, "properties": [{"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}}, {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "title": "Idle Connections",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "hikaricp_connections_idle{job=\"$job\"}",
+          "legendFormat": "Idle",
+          "refId": "A"
+        },
+        {
+          "expr": "hikaricp_connections_min{job=\"$job\"}",
+          "legendFormat": "Min",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Pending Threads",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "hikaricp_connections_pending{job=\"$job\"}",
+          "legendFormat": "Pending",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 20, "pointSize": 5, "showPoints": "never"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          },
+          "color": {"mode": "continuous-GrYlRd"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Connection Timeout Total",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "hikaricp_connections_timeout_total{job=\"$job\"}",
+          "legendFormat": "Timeouts",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 10}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Connection Acquire Time (avg)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 20},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "rate(hikaricp_connections_acquire_seconds_sum{job=\"$job\"}[5m]) / rate(hikaricp_connections_acquire_seconds_count{job=\"$job\"}[5m])",
+          "legendFormat": "Acquire Time",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Connection Creation Time (avg)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 20},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "rate(hikaricp_connections_creation_seconds_sum{job=\"$job\"}[5m]) / rate(hikaricp_connections_creation_seconds_count{job=\"$job\"}[5m])",
+          "legendFormat": "Creation Time",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Connection Usage Time (avg)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 20},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "rate(hikaricp_connections_usage_seconds_sum{job=\"$job\"}[5m]) / rate(hikaricp_connections_usage_seconds_count{job=\"$job\"}[5m])",
+          "legendFormat": "Usage Time",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

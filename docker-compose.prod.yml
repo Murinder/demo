@@ -1,0 +1,583 @@
+version: '3.8'
+
+services:
+  # ==================== INFRASTRUCTURE ====================
+
+  postgres:
+    image: postgres:14-alpine
+    container_name: etsopy-postgres
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_USERNAME}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: etsopy-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: etsopy-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.3
+    container_name: etsopy-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx1g
+      - cluster.name=etsopy-cluster
+    ports:
+      - "${ELASTICSEARCH_PORT:-9200}:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: etsopy-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== MONITORING ====================
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: etsopy-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - etsopy-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: etsopy-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/docker/grafana/provisioning:/etc/grafana/provisioning
+      - ./infrastructure/docker/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - etsopy-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  zipkin:
+    image: openzipkin/zipkin:2.27
+    container_name: etsopy-zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - etsopy-network
+    restart: unless-stopped
+
+  # ==================== SERVICE DISCOVERY ====================
+
+  eureka-server:
+    build:
+      context: .
+      dockerfile: eureka-server/Dockerfile
+    container_name: etsopy-eureka-server
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      start_period: 40s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== API GATEWAY ====================
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: etsopy-api-gateway
+    ports:
+      - "${API_GATEWAY_PORT:-8080}:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      start_period: 40s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== MICROSERVICES ====================
+
+  core-service:
+    build:
+      context: .
+      dockerfile: core-service/Dockerfile
+    container_name: etsopy-core-service
+    ports:
+      - "${CORE_SERVICE_PORT:-8001}:8001"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=etsopy_core
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - MINIO_HOST=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRATION=${JWT_EXPIRATION}
+      - JWT_REFRESH_EXPIRATION=${JWT_REFRESH_EXPIRATION}
+      - JWT_ISSUER_URI=${JWT_ISSUER_URI}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  project-service:
+    build:
+      context: .
+      dockerfile: project-service/Dockerfile
+    container_name: etsopy-project-service
+    ports:
+      - "${PROJECT_SERVICE_PORT:-8002}:8002"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=etsopy_project
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - MINIO_HOST=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  event-service:
+    build:
+      context: .
+      dockerfile: event-service/Dockerfile
+    container_name: etsopy-event-service
+    ports:
+      - "${EVENT_SERVICE_PORT:-8003}:8003"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=etsopy_event
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  portfolio-service:
+    build:
+      context: .
+      dockerfile: portfolio-service/Dockerfile
+    container_name: etsopy-portfolio-service
+    ports:
+      - "${PORTFOLIO_SERVICE_PORT:-8004}:8004"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=etsopy_portfolio
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: analytics-service/Dockerfile
+    container_name: etsopy-analytics-service
+    ports:
+      - "${ANALYTICS_SERVICE_PORT:-8005}:8005"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=etsopy_analytics
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  rating-service:
+    build:
+      context: .
+      dockerfile: rating-service/Dockerfile
+    container_name: etsopy-rating-service
+    ports:
+      - "${RATING_SERVICE_PORT:-8006}:8006"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=etsopy_rating
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  partner-service:
+    build:
+      context: .
+      dockerfile: partner-service/Dockerfile
+    container_name: etsopy-partner-service
+    ports:
+      - "${PARTNER_SERVICE_PORT:-8007}:8007"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=etsopy_partner
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  admin-service:
+    build:
+      context: .
+      dockerfile: admin-service/Dockerfile
+    container_name: etsopy-admin-service
+    ports:
+      - "${ADMIN_SERVICE_PORT:-8008}:8008"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=etsopy_admin
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  document-service:
+    build:
+      context: .
+      dockerfile: document-service/Dockerfile
+    container_name: etsopy-document-service
+    ports:
+      - "${DOCUMENT_SERVICE_PORT:-8009}:8009"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=etsopy_document
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - MINIO_HOST=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    entrypoint: ["java", "-Xmx256m", "-Xms128m", "-jar", "app.jar"]
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    name: etsopy-prod-postgres-data
+  redis_data:
+    name: etsopy-prod-redis-data
+  rabbitmq_data:
+    name: etsopy-prod-rabbitmq-data
+  elasticsearch_data:
+    name: etsopy-prod-elasticsearch-data
+  minio_data:
+    name: etsopy-prod-minio-data
+  prometheus_data:
+    name: etsopy-prod-prometheus-data
+  grafana_data:
+    name: etsopy-prod-grafana-data
+
+networks:
+  etsopy-network:
+    driver: bridge
+    name: etsopy-prod-network

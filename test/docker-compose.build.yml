@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: api-gateway/Dockerfile
+
+  admin-service:
+    build:
+      context: ..
+      dockerfile: admin-service/Dockerfile
+
+  analytics-service:
+    build:
+      context: ..
+      dockerfile: analytics-service/Dockerfile
+
+  core-service:
+    build:
+      context: ..
+      dockerfile: core-service/Dockerfile
+
+  document-service:
+    build:
+      context: ..
+      dockerfile: document-service/Dockerfile
+
+  eureka-server:
+    build:
+      context: ..
+      dockerfile: eureka-server/Dockerfile
+
+  event-service:
+    build:
+      context: ..
+      dockerfile: event-service/Dockerfile
+
+  partner-service:
+    build:
+      context: ..
+      dockerfile: partner-service/Dockerfile
+
+  portfolio-service:
+    build:
+      context: ..
+      dockerfile: portfolio-service/Dockerfile
+
+  project-service:
+    build:
+      context: ..
+      dockerfile: project-service/Dockerfile
+
+  rating-service:
+    build:
+      context: ..
+      dockerfile: rating-service/Dockerfile

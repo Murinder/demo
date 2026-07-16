@@ -1,0 +1,152 @@
+stages:
+  - build
+  - test
+  - analyze
+  - docker
+  - deploy
+
+variables:
+  DOCKER_REGISTRY: "registry.gitlab.com"
+  DOCKER_IMAGE: "$DOCKER_REGISTRY/$CI_PROJECT_PATH"
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  MAVEN_CLI_OPTS: "-s .m2/settings.xml --batch-mode"
+
+cache:
+  paths:
+    - .m2/repository
+    - node_modules
+
+# Build Stage
+build:maven:
+  stage: build
+  image: maven:3.8-openjdk-17
+  script:
+    - mvn clean install -DskipTests $MAVEN_CLI_OPTS
+  artifacts:
+    paths:
+      - "*/target/*.jar"
+      - shared-lib/target/*.jar
+    expire_in: 1 day
+  only:
+    - merge_requests
+    - main
+    - develop
+
+# Test Stage
+test:unit:
+  stage: test
+  image: maven:3.8-openjdk-17
+  script:
+    - mvn test $MAVEN_CLI_OPTS
+  artifacts:
+    reports:
+      junit:
+        - "**/target/surefire-reports/TEST-*.xml"
+    paths:
+      - "**/target/site/jacoco/**"
+    expire_in: 30 days
+  only:
+    - merge_requests
+    - main
+    - develop
+
+test:integration:
+  stage: test
+  image: maven:3.8-openjdk-17
+  services:
+    - postgres:14
+    - redis:7
+    - rabbitmq:3.12-management
+  variables:
+    POSTGRES_DB: etsopy_test
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    REDIS_HOST: redis
+    RABBITMQ_HOST: rabbitmq
+  script:
+    - mvn verify $MAVEN_CLI_OPTS
+  artifacts:
+    reports:
+      junit:
+        - "**/target/failsafe-reports/TEST-*.xml"
+  only:
+    - merge_requests
+    - main
+    - develop
+
+# Code Analysis
+analyze:sonarqube:
+  stage: analyze
+  image: maven:3.8-openjdk-17
+  script:
+    - mvn sonar:sonar -Dsonar.projectKey=$CI_PROJECT_NAME -Dsonar.sources=src/main/java -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_LOGIN $MAVEN_CLI_OPTS
+  only:
+    - merge_requests
+    - main
+    - develop
+  allow_failure: true
+
+# Docker Build
+docker:build:
+  stage: docker
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - |
+      for service in api-gateway core-service project-service event-service portfolio-service analytics-service rating-service partner-service admin-service document-service; do
+        if [ -d "$service" ]; then
+          docker build -t $DOCKER_IMAGE/$service:$CI_COMMIT_SHA -t $DOCKER_IMAGE/$service:latest ./$service
+          docker push $DOCKER_IMAGE/$service:$CI_COMMIT_SHA
+          docker push $DOCKER_IMAGE/$service:latest
+        fi
+      done
+  only:
+    - main
+    - develop
+
+# Deploy to Kubernetes
+deploy:k8s:dev:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context $KUBE_CONTEXT_DEV
+    - kubectl set image deployment/core-service-deployment core-service=$DOCKER_IMAGE/core-service:$CI_COMMIT_SHA -n default
+    - kubectl rollout status deployment/core-service-deployment -n default
+  environment:
+    name: development
+    kubernetes:
+      namespace: default
+  only:
+    - develop
+
+deploy:k8s:prod:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context $KUBE_CONTEXT_PROD
+    - kubectl set image deployment/core-service-deployment core-service=$DOCKER_IMAGE/core-service:$CI_COMMIT_SHA -n production
+    - kubectl rollout status deployment/core-service-deployment -n production
+  environment:
+    name: production
+    kubernetes:
+      namespace: production
+  only:
+    - main
+  when: manual
+
+# Cleanup
+cleanup:docker:
+  stage: deploy
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker image prune -a --force --filter "until=72h"
+  only:
+    - schedules
+

@@ -1,0 +1,65 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "api-gateway"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["api-gateway:8080"]
+
+  - job_name: "core-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["core-service:8001"]
+
+  - job_name: "project-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["project-service:8002"]
+
+  - job_name: "event-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["event-service:8003"]
+
+  - job_name: "portfolio-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["portfolio-service:8004"]
+
+  - job_name: "analytics-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["analytics-service:8005"]
+
+  - job_name: "rating-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["rating-service:8006"]
+
+  - job_name: "partner-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["partner-service:8007"]
+
+  - job_name: "admin-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["admin-service:8008"]
+
+  - job_name: "document-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["document-service:8009"]

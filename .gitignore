@@ -1,0 +1,61 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Maven
+target/
+.classpath
+.project
+.settings/
+*.jar
+*.war
+*.ear
+
+# Gradle
+build/
+.gradle/
+
+# Spring Boot
+*.log
+*.log.*
+
+# Docker
+.dockerignore
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Node (for frontend)
+node_modules/
+npm-debug.log
+dist/
+
+# Test coverage
+.jacoco
+.coverage
+htmlcov/
+
+# SonarQube
+.sonarcloud.properties
+
+# Build artifacts
+dist/
+out/
+bin/
+
+# IDE specific files
+*.iml
+.gradle
+gradlew
+gradlew.bat
+

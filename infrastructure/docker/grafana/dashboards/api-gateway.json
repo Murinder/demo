@@ -1,0 +1,287 @@
+{
+  "id": null,
+  "uid": "etsopy-api-gateway",
+  "title": "ETSOPY - API Gateway",
+  "tags": ["etsopy", "gateway"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Gateway Throughput (req/s)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(spring_cloud_gateway_requests_seconds_count[5m]))",
+          "legendFormat": "Total req/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Gateway Error Rate %",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(spring_cloud_gateway_requests_seconds_count{status=~\"5..\"}[5m])) / sum(rate(spring_cloud_gateway_requests_seconds_count[5m])) * 100",
+          "legendFormat": "Error %",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Rate Limiter Rejections (429s)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(spring_cloud_gateway_requests_seconds_count{status=\"429\"}[5m]))",
+          "legendFormat": "429 req/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 10}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Requests per Route",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(spring_cloud_gateway_requests_seconds_count[5m])) by (routeId)",
+          "legendFormat": "{{routeId}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Average Latency per Route",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(spring_cloud_gateway_requests_seconds_sum[5m])) by (routeId) / sum(rate(spring_cloud_gateway_requests_seconds_count[5m])) by (routeId)",
+          "legendFormat": "{{routeId}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "P95 Latency per Route",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(spring_cloud_gateway_requests_seconds_bucket[5m])) by (le, routeId))",
+          "legendFormat": "p95 {{routeId}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Status Code Distribution by Route",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(spring_cloud_gateway_requests_seconds_count[5m])) by (routeId, status)",
+          "legendFormat": "{{routeId}} - {{status}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {"drawStyle": "bars", "lineWidth": 1, "fillOpacity": 50, "pointSize": 5, "showPoints": "never", "stacking": {"mode": "normal"}}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Circuit Breaker State",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 24, "x": 0, "y": 20},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "resilience4j_circuitbreaker_state{job=\"api-gateway\"}",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "CLOSED", "color": "green"}, "1": {"text": "OPEN", "color": "red"}, "2": {"text": "HALF_OPEN", "color": "yellow"}}}
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 9,
+      "title": "Circuit Breaker Calls",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(resilience4j_circuitbreaker_calls_seconds_count{job=\"api-gateway\"}[5m])) by (name, kind)",
+          "legendFormat": "{{name}} - {{kind}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "title": "Gateway JVM Heap Usage",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{job=\"api-gateway\", area=\"heap\"}",
+          "legendFormat": "Used",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_memory_max_bytes{job=\"api-gateway\", area=\"heap\"}",
+          "legendFormat": "Max",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Max"}, "properties": [{"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}}]}
+        ]
+      }
+    }
+  ]
+}

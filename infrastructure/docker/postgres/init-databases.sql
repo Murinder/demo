@@ -1,0 +1,9 @@
+CREATE DATABASE etsopy_core;
+CREATE DATABASE etsopy_project;
+CREATE DATABASE etsopy_event;
+CREATE DATABASE etsopy_portfolio;
+CREATE DATABASE etsopy_analytics;
+CREATE DATABASE etsopy_rating;
+CREATE DATABASE etsopy_partner;
+CREATE DATABASE etsopy_admin;
+CREATE DATABASE etsopy_document;

@@ -1,0 +1,236 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+  main:
+    web-application-type: reactive
+  application:
+    name: api-gateway
+
+  # Redis for Rate Limiting
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  cloud:
+    gateway:
+      metrics:
+        enabled: true
+      default-filters:
+        - RemoveRequestHeader=Cookie
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+        - AuthorizationHeaderFilter
+      routes:
+        # ==================== CORE SERVICE ====================
+        - id: core-service
+          uri: lb://core-service
+          predicates:
+            - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/dashboard/**,/api/v1/dashboards/**,/api/v1/notifications/**,/api/v1/chats/**,/api/v1/search/**,/api/v1/faculties/**,/api/v1/departments/**,/api/v1/calendar/**,/api/v1/integrations/**,/api/v1/applications/**,/api/v1/user-skills/**,/api/v1/user-languages/**,/api/v1/user-links/**,/api/v1/user-documents/**,/api/v1/user-awards/**,/api/v1/emergency-contacts/**,/api/v1/notification-settings/**,/api/v1/sessions/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: core-service
+                fallbackUri: forward:/fallback
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 50
+                redis-rate-limiter.burstCapacity: 100
+
+        # ==================== PROJECT SERVICE ====================
+        - id: project-service
+          uri: lb://project-service
+          predicates:
+            - Path=/api/v1/projects/**,/api/v1/tasks/**,/api/v1/documents/**,/api/v1/project-templates/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: project-service
+                fallbackUri: forward:/fallback
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 50
+                redis-rate-limiter.burstCapacity: 100
+
+        # ==================== EVENT SERVICE ====================
+        - id: event-service
+          uri: lb://event-service
+          predicates:
+            - Path=/api/v1/events/**,/api/v1/event-applications/**,/api/v1/teams/**,/api/v1/team-members/**,/api/v1/event-tasks/**,/api/v1/event-mentors/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: event-service
+                fallbackUri: forward:/fallback
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 50
+                redis-rate-limiter.burstCapacity: 100
+
+        # ==================== PORTFOLIO SERVICE ====================
+        - id: portfolio-service
+          uri: lb://portfolio-service
+          predicates:
+            - Path=/api/v1/portfolios/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: portfolio-service
+                fallbackUri: forward:/fallback
+
+        # ==================== ANALYTICS SERVICE ====================
+        - id: analytics-service
+          uri: lb://analytics-service
+          predicates:
+            - Path=/api/v1/reports/**,/api/v1/kpi/**,/api/v1/competencies/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: analytics-service
+                fallbackUri: forward:/fallback
+
+        # ==================== RATING SERVICE ====================
+        - id: rating-service
+          uri: lb://rating-service
+          predicates:
+            - Path=/api/v1/ratings/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: rating-service
+                fallbackUri: forward:/fallback
+
+        # ==================== PARTNER SERVICE ====================
+        - id: partner-service
+          uri: lb://partner-service
+          predicates:
+            - Path=/api/v1/partners/**,/api/v1/cases/**,/api/v1/vacancies/**,/api/v1/agreements/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: partner-service
+                fallbackUri: forward:/fallback
+
+        # ==================== ADMIN SERVICE ====================
+        - id: admin-service
+          uri: lb://admin-service
+          predicates:
+            - Path=/api/v1/admin/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: admin-service
+                fallbackUri: forward:/fallback
+
+        # ==================== DOCUMENT SERVICE ====================
+        - id: document-service
+          uri: lb://document-service
+          predicates:
+            - Path=/api/v1/document-templates/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: document-service
+                fallbackUri: forward:/fallback
+
+        # ==================== WEBSOCKET ====================
+        - id: websocket
+          uri: lb:ws://core-service
+          predicates:
+            - Path=/ws/**
+
+server:
+  port: ${SERVER_PORT:8080}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# Resilience4j Circuit Breaker defaults
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10000
+        permittedNumberOfCallsInHalfOpenState: 3
+    instances:
+      core-service:
+        baseConfig: default
+      project-service:
+        baseConfig: default
+      event-service:
+        baseConfig: default
+      portfolio-service:
+        baseConfig: default
+      analytics-service:
+        baseConfig: default
+      rating-service:
+        baseConfig: default
+      partner-service:
+        baseConfig: default
+      admin-service:
+        baseConfig: default
+      document-service:
+        baseConfig: default
+
+logging:
+  level:
+    root: INFO
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:your-super-secret-jwt-key-change-in-production}
+    expiration: 86400000
+    refresh-expiration: 604800000
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    doc-expansion: list
+    filter: true
+    try-it-out-enabled: true
+    display-request-duration: true
+    urls:
+      - name: Platform Overview
+        url: /v3/api-docs
+      - name: Core Service
+        url: /service-docs/core-service
+      - name: Project Service
+        url: /service-docs/project-service
+      - name: Event Service
+        url: /service-docs/event-service
+      - name: Portfolio Service
+        url: /service-docs/portfolio-service
+      - name: Analytics Service
+        url: /service-docs/analytics-service
+      - name: Rating Service
+        url: /service-docs/rating-service
+      - name: Partner Service
+        url: /service-docs/partner-service
+      - name: Admin Service
+        url: /service-docs/admin-service
+      - name: Document Service
+        url: /service-docs/document-service

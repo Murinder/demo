@@ -1,0 +1,476 @@
+version: '3.8'
+
+services:
+  # ==================== INFRASTRUCTURE ====================
+
+  postgres:
+    image: postgres:14-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_USERNAME}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.3
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx1g
+      - cluster.name=etsopy-cluster
+    ports:
+      - "${ELASTICSEARCH_PORT}:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    ports:
+      - "${MINIO_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== SERVICE DISCOVERY ====================
+
+  eureka-server:
+    build:
+      context: .
+      dockerfile: eureka-server/Dockerfile
+    container_name: eureka-server
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    networks:
+      - etsopy-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ==================== API GATEWAY ====================
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: api-gateway
+    ports:
+      - "${API_GATEWAY_PORT}:8080"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - REDIS_HOST=redis
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==================== MICROSERVICES ====================
+
+  core-service:
+    build:
+      context: .
+      dockerfile: core-service/Dockerfile
+    container_name: core-service
+    ports:
+      - "${CORE_SERVICE_PORT}:8001"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - MINIO_URL=http://minio:9000
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  project-service:
+    build:
+      context: .
+      dockerfile: project-service/Dockerfile
+    container_name: project-service
+    ports:
+      - "${PROJECT_SERVICE_PORT}:8002"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - MINIO_URL=http://minio:9000
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  event-service:
+    build:
+      context: .
+      dockerfile: event-service/Dockerfile
+    container_name: event-service
+    ports:
+      - "${EVENT_SERVICE_PORT}:8003"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  portfolio-service:
+    build:
+      context: .
+      dockerfile: portfolio-service/Dockerfile
+    container_name: portfolio-service
+    ports:
+      - "${PORTFOLIO_SERVICE_PORT}:8004"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: analytics-service/Dockerfile
+    container_name: analytics-service
+    ports:
+      - "${ANALYTICS_SERVICE_PORT}:8005"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  rating-service:
+    build:
+      context: .
+      dockerfile: rating-service/Dockerfile
+    container_name: rating-service
+    ports:
+      - "${RATING_SERVICE_PORT}:8006"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  partner-service:
+    build:
+      context: .
+      dockerfile: partner-service/Dockerfile
+    container_name: partner-service
+    ports:
+      - "${PARTNER_SERVICE_PORT}:8007"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  admin-service:
+    build:
+      context: .
+      dockerfile: admin-service/Dockerfile
+    container_name: admin-service
+    ports:
+      - "${ADMIN_SERVICE_PORT}:8008"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  document-service:
+    build:
+      context: .
+      dockerfile: document-service/Dockerfile
+    container_name: document-service
+    ports:
+      - "${DOCUMENT_SERVICE_PORT}:8009"
+    env_file:
+      - .env
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - MINIO_URL=http://minio:9000
+      - EUREKA_URL=http://eureka-server:8761/eureka/
+    networks:
+      - etsopy-network
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==================== MONITORING ====================
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - etsopy-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/docker/grafana/provisioning:/etc/grafana/provisioning
+      - ./infrastructure/docker/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - etsopy-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  zipkin:
+    image: openzipkin/zipkin:2.27
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - etsopy-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    name: etsopy-postgres-data
+  redis_data:
+    name: etsopy-redis-data
+  rabbitmq_data:
+    name: etsopy-rabbitmq-data
+  elasticsearch_data:
+    name: etsopy-elasticsearch-data
+  minio_data:
+    name: etsopy-minio-data
+  prometheus_data:
+    name: etsopy-prometheus-data
+  grafana_data:
+    name: etsopy-grafana-data
+
+networks:
+  etsopy-network:
+    driver: bridge
+    name: etsopy-network

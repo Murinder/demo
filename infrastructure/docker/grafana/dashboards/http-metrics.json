@@ -1,0 +1,235 @@
+{
+  "id": null,
+  "uid": "etsopy-http-metrics",
+  "title": "ETSOPY - HTTP Request Metrics",
+  "tags": ["etsopy", "http"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(up, job)",
+        "multi": false,
+        "includeAll": false,
+        "current": {"text": "core-service", "value": "core-service"},
+        "refresh": 2
+      },
+      {
+        "name": "uri",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(http_server_requests_seconds_count{job=\"$job\"}, uri)",
+        "multi": true,
+        "includeAll": true,
+        "current": {"text": "All", "value": "$__all"},
+        "refresh": 2
+      },
+      {
+        "name": "method",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(http_server_requests_seconds_count{job=\"$job\"}, method)",
+        "multi": true,
+        "includeAll": true,
+        "current": {"text": "All", "value": "$__all"},
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate by Endpoint",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"$job\", uri=~\"$uri\", method=~\"$method\"}[5m])) by (uri, method)",
+          "legendFormat": "{{method}} {{uri}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Error Rate by Status",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"$job\", status=~\"4..|5..\"}[5m])) by (uri, status)",
+          "legendFormat": "{{status}} {{uri}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"},
+          "color": {"mode": "palette-classic"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Average Latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_sum{job=\"$job\", uri=~\"$uri\", method=~\"$method\"}[5m])) by (uri) / sum(rate(http_server_requests_seconds_count{job=\"$job\", uri=~\"$uri\", method=~\"$method\"}[5m])) by (uri)",
+          "legendFormat": "{{uri}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "P95 Latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"$job\", uri=~\"$uri\", method=~\"$method\"}[5m])) by (le, uri))",
+          "legendFormat": "p95 {{uri}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "P99 Latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"$job\", uri=~\"$uri\", method=~\"$method\"}[5m])) by (le, uri))",
+          "legendFormat": "p99 {{uri}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "pointSize": 5, "showPoints": "never"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Requests by Status Code",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(increase(http_server_requests_seconds_count{job=\"$job\"}[$__range])) by (status)",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right"},
+        "pieType": "donut",
+        "reduceOptions": {"calcs": ["lastNotNull"]}
+      }
+    },
+    {
+      "id": 7,
+      "title": "Top 10 Slowest Endpoints",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 16, "x": 8, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "topk(10, sum(rate(http_server_requests_seconds_sum{job=\"$job\"}[5m])) by (uri, method) / sum(rate(http_server_requests_seconds_count{job=\"$job\"}[5m])) by (uri, method))",
+          "legendFormat": "{{method}} {{uri}}",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "uri"}, "properties": [{"id": "custom.width", "value": 300}]},
+          {"matcher": {"id": "byName", "options": "method"}, "properties": [{"id": "custom.width", "value": 80}]}
+        ]
+      },
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "job": true}, "renameByName": {"Value": "Avg Latency (s)"}}}
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Total Request Rate (all endpoints)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 24, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"$job\"}[5m]))",
+          "legendFormat": "Total req/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    }
+  ]
+}
